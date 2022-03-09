@@ -1,6 +1,7 @@
 import unittest
 from unittest import TestCase
 import pyares.chemistry as chemistry
+import cantera
 
 class TestFun(TestCase):
     def test_units(self):
@@ -38,6 +39,25 @@ class TestFun(TestCase):
         co2heater = chemistry.Heater(g, co2, energy, 673 , 30e5)
         h2 = chemistry.ChemicalSpeciesSupply(g, "H2", 273, 10e5).register("h2")
         h2heater = chemistry.Heater(g, h2, energy, 673, 30e5)
+
+    def test_cantera(self):
+        o = cantera.Oxygen()
+
+        o.TP = 313, 1E05
+        print(o())
+        print(o.cp_mole / 1000)
+        a = o.int_energy_mole
+        a2 = o.enthalpy_mole
+
+        o = cantera.Oxygen()
+        o.TP = 314, 1E5 #* 314 / 313
+        print(o())
+        b = o.int_energy_mole
+        b2 = o.enthalpy_mole
+
+        print((b - a) / 1000 / 1)
+        print((b2 - a2) / 1000 / 1)
+        #print(dir(o))
 
 
 if __name__ == '__main__':

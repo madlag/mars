@@ -99,7 +99,7 @@ class SupplyNode:
         assert(dest_name not in self.connections)
         self.connections[dest_name] = SupplyConnection(dest_name, src_node, src_name)
 
-    def run(self, amount, dt, name = None):
+    def run(self, amount, dt):
         raise NotImplementedError("Implement run for class " + self.__class__.__name__)
 
     def register(self, name_in_graph):
@@ -150,21 +150,26 @@ class ChemicalSpeciesSupply(SupplyNode):
         self.max_flow = self.parse_max_flow(max_flow)
 
 
-    def run(self, amount, dt, name = None):
-        assert(name == None or name == "main")
+    def run(self, amount, dt):
         amount = self.limit_amount(amount, dt)
         self.update_produced(amount)
 
         ret = ChemicalSpecies(self.graph, self.name, self.temperature, self.pressure, amount)
         return ret
 
-
-
 class Heater(SupplyNode):
     def __init__(self, graph, matter_input, energy_input, temperature, pressure, max_flow = None):
         super().__init__(graph)
         self.consume(matter_input, dest_name = "matter_input")
         self.consume(energy_input, dest_name = "energy_input")
+
+    def run(self, amount, dt, name=None):
+        amount = self.limit_amount(amount, dt)
+        self.update_produced(amount)
+        #from cantera import PureFluid
+        #PureFluid('liquidvapor.yaml', 'oxygen')
+        ret = ChemicalSpecies(self.graph, self.name, self.temperature, self.pressure, amount)
+        return ret
 
 class SabatierReaction(SupplyNode):
     def __init__(self):
