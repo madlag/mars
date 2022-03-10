@@ -1,7 +1,8 @@
 import math
 import pint
 from pint import UnitRegistry
-
+from cantera import PureFluid
+import copy
 
 class SupplyGraph:
     def __init__(self):
@@ -83,10 +84,13 @@ class SupplyConnection:
         self.src_node = src_node
         self.src_name = src_name
 
+    def run(self, amount, dt):
+        return self.src_node.run(amount, dt)
+
 class SupplyNode:
     def __init__(self, graph):
         self.graph = graph
-        self.connections = {}
+        self.sources = {}
         self.produced = self.graph.convert_value("0 mol")
 
     def update_produced(self, amount):
@@ -96,8 +100,8 @@ class SupplyNode:
         return self.produced
 
     def connect(self, src_node, src_name = "output", dest_name = "input"):
-        assert(dest_name not in self.connections)
-        self.connections[dest_name] = SupplyConnection(dest_name, src_node, src_name)
+        assert(dest_name not in self.sources)
+        self.sources[dest_name] = SupplyConnection(dest_name, src_node, src_name)
 
     def run(self, amount, dt):
         raise NotImplementedError("Implement run for class " + self.__class__.__name__)
@@ -108,7 +112,6 @@ class SupplyNode:
     def consume(self, src_node, src_name = "output", dest_name = "input"):
         self.connect(src_node, src_name, dest_name)
         return self
-
 
     def parse_max_flow(self, max_flow):
         if max_flow is None:
@@ -125,15 +128,30 @@ class SupplyNode:
         return amount
 
 class ChemicalSpecies(SupplyVertex):
+    name_conversion = {"O2": "oxygen", "CO2":"carbon-dioxide"}
     def __init__(self, graph, name, temperature, pressure, amount):
         super().__init__(graph)
         self.name = name
-        self.temperature = temperature
-        self.pressure = pressure
+        self.chemical = PureFluid('liquidvapor.yaml', self.name_conversion[self.name])
+        self.chemical.TP = temperature.to("kelvin").magnitude, pressure.to("pascal").magnitude
         self.amount = amount
 
+    def enthalpy(self):
+        return self.chemical.enthalpy_mole / 1000
+
+    def energy(self):
+        return self.chemical.int_energy_mole / 1000
+
+    def heat_compress(self, temperature, pressure):
+        new_species = copy.deepcopy(self)
+        new_species.chemical.TP = temperature.to("kelvin").magnitude, pressure.to("pascal").magnitude
+        print(self.chemical.TP)
+        print(new_species.chemical.TP)
+
+        return new_species
+
     def __str__(self):
-        return f"{self.__class__.__name__}(name={self.name}, temperature={self.temperature}, pressure={self.pressure:e}, amount={self.amount})"
+        return f"{self.__class__.__name__}(name={self.name}, temperature={self.graph.temperature(self.chemical.T)}, pressure={self.graph.pressure(self.chemical.P):e}, amount={self.amount})"
 
 class EnergySupply(SupplyNode):
     pass
@@ -160,16 +178,24 @@ class ChemicalSpeciesSupply(SupplyNode):
 class Heater(SupplyNode):
     def __init__(self, graph, matter_input, energy_input, temperature, pressure, max_flow = None):
         super().__init__(graph)
+        self.temperature = graph.temperature(temperature)
+        self.pressure = graph.pressure(pressure)
+        self.max_flow = self.parse_max_flow(max_flow)
+
         self.consume(matter_input, dest_name = "matter_input")
         self.consume(energy_input, dest_name = "energy_input")
 
     def run(self, amount, dt, name=None):
         amount = self.limit_amount(amount, dt)
+        src = self.sources["matter_input"].run(amount, dt)
         self.update_produced(amount)
-        #from cantera import PureFluid
-        #PureFluid('liquidvapor.yaml', 'oxygen')
-        ret = ChemicalSpecies(self.graph, self.name, self.temperature, self.pressure, amount)
-        return ret
+        dest = src.heat_compress(self.temperature, self.pressure)
+
+        print(dest.enthalpy() - src.enthalpy())
+        print(dest.energy() - src.energy())
+
+        print(src.chemical())
+        return dest
 
 class SabatierReaction(SupplyNode):
     def __init__(self):
